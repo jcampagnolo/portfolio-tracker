@@ -1,109 +1,113 @@
-# src/portfolio/positions.py
-
 """
-Refatoração da lógica de saldos e preço médio do notebook.
-Mantém a MESMA lógica, mas organizada e testável.
+src/portfolio/positions.py
+Cálculo de posições — saldo acumulado e preço médio por ticker.
 """
 
 import pandas as pd
-import logging
 
-logger = logging.getLogger(__name__)
+TIPOS_ENTRADA = {"compra", "desdobramento", "bonificacao", "conversao_entrada"}
+TIPOS_SAIDA = {"venda", "conversao_saida"}
 
 
-def calculate_positions(transactions: pd.DataFrame) -> pd.DataFrame:
+def calculate_positions(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcula saldos, preço médio, posições abertas e fechadas.
-
-    Refatoração DIRETA do seu código de saldos no notebook.
-    A lógica é idêntica, apenas organizada.
+    Calcula saldo e preço médio ponderado para cada ticker.
 
     Args:
-        transactions: DataFrame com colunas:
-            ticker, data, operacao, qtde_real, custo_unit, tipo, local
+        df: DataFrame de transações (output de load_transactions).
 
     Returns:
-        DataFrame com saldos, preço médio, e flags de posição
+        DataFrame com uma linha por ticker: qtde_saldo, preco_medio, custo_total, etc.
     """
-    saldos = transactions[
-        ["ticker", "data", "operacao", "qtde_real", "custo_unit"]
-    ].copy()
+    posicoes: dict[str, dict] = {}
 
-    # Ordenar para cálculo correto do saldo
-    saldos.sort_values(by=["ticker", "data", "operacao"], inplace=True)
+    for _, row in df.sort_values("trade_date").iterrows():
+        ticker = row["ticker"]
+        tipo = row["transaction_type"]
+        qtde = abs(row["quantity"])
+        preco = abs(row["unit_price"]) if row["unit_price"] else 0
+        moeda = row["moeda"]
+        categoria = row["categoria"]
+        nome = row["asset_name"]
+        cambio = row.get("exchange_rate_to_brl") or 0
+        total_brl = row.get("total_amount_brl") or 0
 
-    # Saldo acumulado por ticker
-    saldos["qtde_saldo"] = saldos.groupby("ticker")["qtde_real"].cumsum()
+        if ticker not in posicoes:
+            posicoes[ticker] = _empty_position(ticker, nome, categoria, moeda, cambio)
 
-    # Índice de "ciclos" de operação (abre posição → fecha → abre nova)
-    saldos["indice_op"] = (
-        (saldos["ticker"] != saldos["ticker"].shift(1))
-        | (saldos["qtde_saldo"].shift(1).fillna(0) == 0)
-    ).astype(int).cumsum()
+        pos = posicoes[ticker]
 
-    # Custo acumulado (só compras entram no custo)
-    saldos["custo_compra"] = saldos.apply(
-        lambda row: (
-            row["qtde_real"] * row["custo_unit"]
-            if row["operacao"] in ["Compra", "Grupamento", "Desdobramento"]
-            else 0
-        ),
-        axis=1,
-    )
-    saldos["vl_saldo"] = saldos.groupby(["ticker", "indice_op"])[
-        "custo_compra"
-    ].cumsum()
+        if tipo in TIPOS_ENTRADA:
+            _apply_entry(pos, qtde, preco, moeda, total_brl, cambio)
+        elif tipo in TIPOS_SAIDA:
+            _apply_exit(pos, qtde)
 
-    # Preço médio
-    saldos["preco_medio"] = saldos.apply(
-        lambda row: (
-            row["vl_saldo"] / row["qtde_saldo"]
-            if row["qtde_saldo"] != 0
-            else 0
-        ),
-        axis=1,
-    )
-
-    # Flags de posição
-    saldos["posicao_aberta"] = (
-        (saldos["ticker"] != saldos["ticker"].shift(-1))
-        & (saldos["qtde_saldo"].fillna(0) != 0)
-    ).astype(int)
-
-    saldos["posicao_encerrada"] = (
-        saldos["qtde_saldo"].fillna(0) == 0
-    ).astype(int)
-
-    return saldos
+    return pd.DataFrame(posicoes.values())
 
 
-def get_open_positions(saldos: pd.DataFrame) -> pd.DataFrame:
-    """
-    Retorna apenas posições em aberto (o que você tem em carteira hoje).
-
-    Equivalente ao seu:
-        saldos_pos_abertas = saldos[saldos['posicao_aberta'] == 1][...]
-    """
-    abertas = saldos[saldos["posicao_aberta"] == 1].copy()
-
-    result = abertas[
-        ["ticker", "tipo", "qtde_saldo", "vl_saldo", "preco_medio"]
-    ].reset_index(drop=True)
-
-    # Ticker no formato Yahoo Finance
-    result["ticker_yf"] = result.apply(
-        lambda row: (
-            f"{row['ticker']}.SA"
-            if row.get("local", "BR") == "BR"
-            else row["ticker"]
-        ),
-        axis=1,
-    )
-
-    logger.info(f"{len(result)} posições abertas encontradas.")
-    return result
+def get_open_positions(df_positions: pd.DataFrame) -> pd.DataFrame:
+    """Filtra posições com saldo > 0 (em carteira hoje)."""
+    abertas = df_positions[df_positions["qtde_saldo"] > 0].copy()
+    abertas.sort_values("categoria", inplace=True)
+    abertas.reset_index(drop=True, inplace=True)
+    return abertas
 
 
-def get_closed_positions(saldos: pd.DataFrame) -> pd.DataFrame:
-    """Retorna posições encerradas (para cálculo de lucro/prejuízo realizado)."""
-    return saldos[saldos["posicao_encerrada"] == 1].copy().reset_index(drop=True)
+def get_closed_positions(df_positions: pd.DataFrame) -> pd.DataFrame:
+    """Filtra posições com saldo = 0 (já encerradas)."""
+    return df_positions[df_positions["qtde_saldo"] == 0].copy()
+
+
+# ── Helpers privados ──────────────────────────────────────────
+
+
+def _empty_position(
+    ticker: str, nome: str, categoria: str, moeda: str, cambio: float
+) -> dict:
+    return {
+        "ticker": ticker,
+        "nome": nome,
+        "categoria": categoria,
+        "moeda": moeda,
+        "qtde_saldo": 0.0,
+        "custo_total": 0.0,
+        "preco_medio": 0.0,
+        "custo_total_brl": 0.0,
+        "preco_medio_brl": 0.0,
+        "ultimo_cambio": cambio,
+    }
+
+
+def _apply_entry(
+    pos: dict, qtde: float, preco: float, moeda: str, total_brl: float, cambio: float
+) -> None:
+    custo_operacao = qtde * preco
+    pos["custo_total"] += custo_operacao
+    pos["qtde_saldo"] += qtde
+
+    if moeda == "USD" and total_brl > 0:
+        pos["custo_total_brl"] += abs(total_brl)
+    elif moeda == "BRL":
+        pos["custo_total_brl"] += custo_operacao
+
+    if pos["qtde_saldo"] > 0:
+        pos["preco_medio"] = pos["custo_total"] / pos["qtde_saldo"]
+        pos["preco_medio_brl"] = pos["custo_total_brl"] / pos["qtde_saldo"]
+
+    if cambio > 0:
+        pos["ultimo_cambio"] = cambio
+
+
+def _apply_exit(pos: dict, qtde: float) -> None:
+    if pos["qtde_saldo"] > 0:
+        pos["custo_total"] -= pos["preco_medio"] * qtde
+        pos["custo_total_brl"] -= pos["preco_medio_brl"] * qtde
+
+    pos["qtde_saldo"] -= qtde
+
+    if pos["qtde_saldo"] <= 0:
+        pos["qtde_saldo"] = 0
+        pos["custo_total"] = 0
+        pos["custo_total_brl"] = 0
+        pos["preco_medio"] = 0
+        pos["preco_medio_brl"] = 0

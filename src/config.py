@@ -1,30 +1,29 @@
-# src/config.py
+"""
+Configurações globais carregadas do .env
+"""
 
-from pydantic_settings import BaseSettings
-from pathlib import Path
+import os
+from dataclasses import dataclass
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-class Settings(BaseSettings):
-    # Supabase
+@dataclass(frozen=True)
+class Settings:
     supabase_url: str
-    supabase_key: str              # service_role
-    supabase_anon_key: str = ""    # anon (opcional por enquanto)
+    supabase_key: str
 
-    # App
-    app_name: str = "Portfolio Tracker"
-    debug: bool = False
-    log_level: str = "INFO"
-
-    # Google Sheets (temporário — só migração)
-    google_sheet_id: str = ""
-    google_gid_conta_corrente: str = ""
-    google_gid_cadastro: str = ""
-
-    model_config = {
-        "env_file": Path(__file__).resolve().parent.parent / ".env",
-        "env_file_encoding": "utf-8",
-    }
+    def validate(self):
+        if not self.supabase_url or not self.supabase_key:
+            raise EnvironmentError(
+                "⚠️ SUPABASE_URL e SUPABASE_KEY precisam estar definidos no .env"
+            )
 
 
-# Instância global
-settings = Settings()
+settings = Settings(
+    supabase_url=os.getenv("SUPABASE_URL", ""),
+    supabase_key=os.getenv("SUPABASE_KEY", ""),
+)
+
+settings.validate()

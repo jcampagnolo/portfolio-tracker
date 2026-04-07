@@ -4,6 +4,7 @@ venv/
 
 # Dados
 data/
+prompt_inicial.md
 
 # Credenciais
 .env
