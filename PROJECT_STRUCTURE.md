@@ -75,72 +75,18 @@ portfolio-tracker/
 ## 🗄️ Banco de Dados — Supabase (PostgreSQL)
 
 ```
-📦 Tabelas de Referência (dados estáticos)
-├── currencies                    # BRL, USD
-│   ├── id (PK)
-│   ├── code                      # "BRL", "USD"
-│   ├── name                      # "Real Brasileiro", "Dólar Americano"
-│   └── symbol                    # "R$", "$"
-│
-└── asset_categories              # Categorias de ativos
-    ├── id (PK)
-    ├── name                      # "Ações", "FIIs", "ETF Exterior"...
-    ├── description
-    ├── is_variable_income        # true/false
-    └── default_currency_id (FK)  # → currencies
 
-📦 Tabelas de Cadastro
-├── assets                        # Cadastro de ativos
-│   ├── id (PK)
-│   ├── ticker                    # "VALE3", "VT", "BTC"
-│   ├── name
-│   ├── category_id (FK)          # → asset_categories
-│   └── currency_id (FK)          # → currencies
-│
-├── brokers                       # Corretoras
-│   ├── id (PK)
-│   └── name                      # "Inter", "Avenue", "Binance"
-│
-├── wallets                       # Carteiras (por pessoa)
-│   ├── id (PK)
-│   ├── name                      # "Alisson"
-│   ├── owner_name
-│   └── owner_cpf
-│
-└── broker_accounts               # Vínculo carteira ↔ corretora
-    ├── id (PK)
-    ├── wallet_id (FK)            # → wallets
-    └── broker_id (FK)            # → brokers
+query para exportar a estrutura do banco:
 
-📦 Tabelas de Movimentação
-├── exchange_rates                # Cotações históricas USD/BRL
-│   ├── id (PK)
-│   ├── from_currency_id (FK)     # → currencies (USD)
-│   ├── to_currency_id (FK)       # → currencies (BRL)
-│   ├── rate_date                 # "2025-03-15"
-│   ├── rate                      # 5.7832
-│   └── source                    # "BCB"
-│
-└── transactions                  # Todas as movimentações
-    ├── id (PK)
-    ├── wallet_id (FK)            # → wallets
-    ├── asset_id (FK)             # → assets
-    ├── broker_id (FK)            # → brokers
-    ├── transaction_type          # compra, venda, bonificacao, desdobramento,
-    │                             # conversao_entrada, conversao_saida
-    ├── trade_date                # Data da operação
-    ├── quantity                  # Quantidade
-    ├── unit_price                # Preço unitário
-    ├── total_amount              # Valor total na moeda do ativo
-    ├── currency_id (FK)          # → currencies
-    ├── exchange_rate_to_brl      # Câmbio do dia (se USD)
-    ├── total_amount_brl          # Valor total convertido em BRL
-    ├── conversion_pair_id (FK)   # → transactions (vincula E↔S)
-    └── source                    # "status_invest"
-
-📦 Views (calculadas)
-├── portfolio_positions           # Posição atual + preço médio por ativo
-└── portfolio_by_category         # Posição agrupada por categoria
+SELECT 
+    'CREATE TABLE ' || table_name || ' (' || 
+    string_agg(column_name || ' ' || data_type, ', ') || ');'
+FROM 
+    information_schema.columns
+WHERE 
+    table_schema = 'public'
+GROUP BY 
+    table_name;
 ```
 
 ---

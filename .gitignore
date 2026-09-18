@@ -9,15 +9,33 @@ prompt_inicial.md
 # Credenciais
 .env
 .env.local
+.env*.local
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+.ipynb_checkpoints/
+
+# Next.js / Node
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
 
 # IDE
 .vscode/
 .idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
 
 # Outros
 tmp/
